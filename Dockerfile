@@ -25,17 +25,15 @@ RUN mkdir -p /tmp/out \
 # branch at image-build time. The publish workflow disables cache so EPACK_REF=main
 # really tracks the current upstream main branch.
 RUN git clone --depth 1 --branch "${EPACK_REF}" https://github.com/locktivity/epack.git /tmp/epack \
-	&& cd /tmp/epack \
-	&& git rev-parse HEAD > /tmp/out/epack.revision \
-	&& go build -trimpath -ldflags="-s -w" -o /tmp/out/epack ./cmd/epack \
+	&& git -C /tmp/epack rev-parse HEAD > /tmp/out/epack.revision \
+	&& go -C /tmp/epack build -trimpath -ldflags="-s -w" -o /tmp/out/epack ./cmd/epack \
 	&& sha256sum /tmp/out/epack > /tmp/out/epack.sha256 \
 	&& cp LICENSE NOTICE /tmp/out/
 
 # Build the canonical profile-driven PDF compiler from the latest upstream main.
 RUN git clone --depth 1 --branch "${PDF_REF}" https://github.com/paul007ex/breachsafe-pdf.git /tmp/breachsafe-pdf \
-	&& cd /tmp/breachsafe-pdf \
-	&& git rev-parse HEAD > /tmp/out/breachsafe-pdf.revision \
-	&& go build -trimpath -ldflags="-s -w" -o /tmp/out/breachsafe-pdf ./cmd/breachsafe-pdf \
+	&& git -C /tmp/breachsafe-pdf rev-parse HEAD > /tmp/out/breachsafe-pdf.revision \
+	&& go -C /tmp/breachsafe-pdf build -trimpath -ldflags="-s -w" -o /tmp/out/breachsafe-pdf ./cmd/breachsafe-pdf \
 	&& sha256sum /tmp/out/breachsafe-pdf > /tmp/out/breachsafe-pdf.sha256 \
 	&& cp LICENSE /tmp/out/breachsafe-pdf.LICENSE \
 	&& cp NOTICE /tmp/out/breachsafe-pdf.NOTICE

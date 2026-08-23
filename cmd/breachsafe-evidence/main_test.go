@@ -93,6 +93,22 @@ func TestPackRejectsExistingOutput(t *testing.T) {
 	}
 }
 
+func TestPackRejectsSymlinkArtifact(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "real.json")
+	linkPath := filepath.Join(dir, "link.json")
+	if err := os.WriteFile(realPath, []byte(`{"ok":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+	err := pack(context.Background(), &fakeRunner{}, []string{"--stream", "test", "--other", linkPath, "--output", filepath.Join(dir, "out.epack")})
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("expected symlink rejection, got %v", err)
+	}
+}
+
 func TestVerifyExecutableDigest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "epack")
 	if err := os.WriteFile(path, []byte("approved"), 0o700); err != nil {

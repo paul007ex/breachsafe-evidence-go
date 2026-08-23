@@ -167,28 +167,22 @@ func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) err
 	tmpPack := filepath.Join(tmp, filepath.Base(output))
 	argv := []string{"build", tmpPack, "--stream", stream}
 	expected := make(map[string]bool)
-	for _, encoded := range other {
+	for index, encoded := range other {
 		parts := strings.SplitN(encoded, "\x00", 2)
 		path, role := parts[0], "extra"
 		if len(parts) == 2 {
 			role = parts[1]
 		}
-		info, err := os.Stat(path)
+		stagedPath, err := stageArtifact(tmp, index, path)
 		if err != nil {
-			return fmt.Errorf("artifact %s: %w", path, err)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("artifact %s is not a regular file", path)
-		}
-		if info.Size() == 0 {
-			return fmt.Errorf("artifact %s is empty", path)
+			return err
 		}
 		destination := "artifacts/" + role + "/" + filepath.Base(path)
 		if expected[destination] {
 			return fmt.Errorf("duplicate artifact destination: %s", destination)
 		}
 		expected[destination] = true
-		argv = append(argv, "--file", path+":"+destination)
+		argv = append(argv, "--file", stagedPath+":"+destination)
 	}
 	if _, err := runner.Run(ctx, argv...); err != nil {
 		return err
@@ -220,6 +214,58 @@ func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) err
 		return err
 	}
 	return os.Remove(tmpPack)
+}
+
+// stageArtifact snapshots an artifact before handing it to the external packer.
+// Lstat rejects symlinks, while the open descriptor ensures the bytes copied are
+// the bytes validated even if the path is replaced concurrently.
+func stageArtifact(tmp string, index int, path string) (string, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("artifact %s: %w", path, err)
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return "", fmt.Errorf("artifact %s is not a regular file", path)
+	}
+	if before.Size() == 0 {
+		return "", fmt.Errorf("artifact %s is empty", path)
+	}
+	source, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open artifact %s: %w", path, err)
+	}
+	defer source.Close()
+	opened, err := source.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat opened artifact %s: %w", path, err)
+	}
+	if !opened.Mode().IsRegular() || opened.Size() != before.Size() {
+		return "", fmt.Errorf("artifact %s changed while opening", path)
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("recheck artifact %s: %w", path, err)
+	}
+	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || after.Size() != before.Size() {
+		return "", fmt.Errorf("artifact %s changed while staging", path)
+	}
+	sources := filepath.Join(tmp, "sources")
+	if err := os.MkdirAll(sources, 0o700); err != nil {
+		return "", fmt.Errorf("create artifact staging directory: %w", err)
+	}
+	staged := filepath.Join(sources, fmt.Sprintf("%06d-%s", index, filepath.Base(path)))
+	destination, err := os.OpenFile(staged, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create staged artifact: %w", err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		destination.Close()
+		return "", fmt.Errorf("stage artifact %s: %w", path, err)
+	}
+	if err := destination.Close(); err != nil {
+		return "", fmt.Errorf("close staged artifact: %w", err)
+	}
+	return staged, nil
 }
 
 type inspectReceipt struct {
