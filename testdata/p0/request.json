@@ -1,0 +1,28 @@
+{
+  "schema_version": "breachsafe.report.request.community-single-scan/v1alpha1",
+  "identity": {
+    "report_id": "report-community-example-20260426",
+    "name": "Quantum Readiness Evidence Report",
+    "generated_at": "2026-04-26T00:05:00Z",
+    "language": "en-US",
+    "organization_display_name": "Example Organization",
+    "classification": "COMMUNITY / EVIDENCE REPORT"
+  },
+  "cbom": {
+    "media_type": "application/vnd.cyclonedx+json",
+    "schema": "cyclonedx:1.7",
+    "expected_sha256": "1cc846a80255cb0fa1b9be41cc347c08591106d9a35bdcda5aae7f244f0dcf81"
+  },
+  "scan_json": {
+    "media_type": "application/json",
+    "schema": "qureddy.scan.v1",
+    "expected_sha256": "24cb94e190f57f07fab1d295f7edff5c848a34a22b0fc199b4f742b3cdc9dfcd"
+  },
+  "render_options": {
+    "page_size": "a4",
+    "timezone": "UTC",
+    "color_mode": "color",
+    "accessibility_profile": "none"
+  },
+  "allow_correlation_mismatch": false
+}

@@ -37,6 +37,24 @@ track the current upstream tips on each image build. A scheduled rebuild keeps t
 The image runs as UID 65532. For bind-mounted output directories, grant that directory
 write permission or run with an explicit operator UID; do not make the image privileged.
 
+## P0 acceptance test
+
+The repository carries a small sanitized CBOM, QuReddy scan, and render-request fixture set in
+`testdata/p0/`. The acceptance script generates all packs and PDFs in a temporary directory; no
+generated evidence is committed. With approved ePack and PDF binaries available, run:
+
+```bash
+BREACHSAFE_EVIDENCE_BIN=./breachsafe-evidence \
+  BREACHSAFE_EPACK_BIN=/absolute/path/to/epack \
+  BREACHSAFE_EPACK_SHA256=<sha256> \
+  BREACHSAFE_PDF_BIN=/absolute/path/to/breachsafe-pdf \
+  BREACHSAFE_PDF_SHA256=<sha256> \
+  ./scripts/p0_acceptance.sh
+```
+
+The script exercises `pack`, `report`, `inspect`, `verify`, `extract`, `unpack`, and `diff`, and
+asserts the expected three-artifact pack and five-artifact report pack.
+
 ## Copy/paste commands
 
 The easiest workflow is: put your input files in one directory, mount that directory at
