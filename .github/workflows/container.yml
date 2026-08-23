@@ -12,6 +12,8 @@ on:
       - go.mod
       - .github/workflows/container.yml
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
 
 concurrency:
   group: container-${{ github.ref }}
