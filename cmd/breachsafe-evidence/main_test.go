@@ -15,7 +15,11 @@ import (
 	"github.com/paul007ex/breachsafe-evidence-go/internal/epackcli"
 )
 
-type fakeRunner struct{ calls [][]string }
+type fakeRunner struct {
+	calls         [][]string
+	artifactCount int
+	artifactPaths []string
+}
 
 func (f *fakeRunner) Run(_ context.Context, args ...string) ([]byte, error) {
 	f.calls = append(f.calls, append([]string(nil), args...))
@@ -25,9 +29,23 @@ func (f *fakeRunner) Run(_ context.Context, args ...string) ([]byte, error) {
 		}
 	}
 	if args[0] == "inspect" {
+		count := f.artifactCount
+		if count == 0 {
+			count = 1
+		}
+		paths := f.artifactPaths
+		if len(paths) == 0 {
+			paths = []string{"artifacts/cbom/input.json"}
+		}
 		return json.Marshal(map[string]any{
-			"artifact_count": 1,
-			"artifacts":      []map[string]string{{"path": "artifacts/cbom/input.json"}},
+			"artifact_count": count,
+			"artifacts": func() []map[string]string {
+				result := make([]map[string]string, 0, len(paths))
+				for _, path := range paths {
+					result = append(result, map[string]string{"path": path})
+				}
+				return result
+			}(),
 		})
 	}
 	return []byte("ok\n"), nil
@@ -88,5 +106,38 @@ func TestVerifyExecutableDigest(t *testing.T) {
 	t.Setenv("BREACHSAFE_EPACK_SHA256", strings.Repeat("0", 64))
 	if err := verifyExecutableDigest(path); err == nil {
 		t.Fatal("mismatched digest accepted")
+	}
+}
+
+func TestReportRendersThenPacks(t *testing.T) {
+	dir := t.TempDir()
+	paths := map[string]string{
+		"request": filepath.Join(dir, "request.json"), "scan": filepath.Join(dir, "scan.json"),
+		"cbom": filepath.Join(dir, "cbom.json"), "pdf": filepath.Join(dir, "report.pdf"),
+		"result": filepath.Join(dir, "report.result.json"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("input"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(dir, "evidence.epack")
+	epack := &fakeRunner{artifactCount: 5, artifactPaths: []string{
+		"artifacts/cbom/cbom.json", "artifacts/pdf/report.pdf", "artifacts/request/request.json",
+		"artifacts/result/report.result.json", "artifacts/scan/scan.json",
+	}}
+	pdf := &fakeRunner{}
+	args := []string{"--profile", "breachsafe/community", "--request", paths["request"], "--scan-json", paths["scan"], "--cbom", paths["cbom"], "--pdf", paths["pdf"], "--result", paths["result"], "--stream", "breachsafe/test", "--output", out}
+	if err := reportWithRunners(context.Background(), epack, pdf, args); err != nil {
+		t.Fatal(err)
+	}
+	if len(pdf.calls) != 1 || pdf.calls[0][0] != "render" {
+		t.Fatalf("expected one PDF render call, got %#v", pdf.calls)
+	}
+	if len(epack.calls) != 3 {
+		t.Fatalf("expected build/inspect/verify, got %#v", epack.calls)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("ePack output missing: %v", err)
 	}
 }

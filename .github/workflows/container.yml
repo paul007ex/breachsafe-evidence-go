@@ -57,6 +57,7 @@ jobs:
           no-cache: true
           build-args: |
             EPACK_REF=main
+            PDF_REF=main
           tags: |
             ${{ env.IMAGE }}:${{ env.VERSION }}
             ${{ env.IMAGE }}:v0.1

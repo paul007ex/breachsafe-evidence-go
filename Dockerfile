@@ -3,10 +3,12 @@
 
 ARG GOLDEN_IMAGE=ghcr.io/paul007ex/breachsafe-golden-go:1.26.6
 ARG EPACK_REF=main
+ARG PDF_REF=main
 
 FROM ${GOLDEN_IMAGE} AS build
 
 ARG EPACK_REF
+ARG PDF_REF
 
 WORKDIR /src
 ENV CGO_ENABLED=0 \
@@ -29,12 +31,21 @@ RUN git clone --depth 1 --branch "${EPACK_REF}" https://github.com/locktivity/ep
 	&& sha256sum /tmp/out/epack > /tmp/out/epack.sha256 \
 	&& cp LICENSE NOTICE /tmp/out/
 
+# Build the canonical profile-driven PDF compiler from the latest upstream main.
+RUN git clone --depth 1 --branch "${PDF_REF}" https://github.com/paul007ex/breachsafe-pdf.git /tmp/breachsafe-pdf \
+	&& cd /tmp/breachsafe-pdf \
+	&& git rev-parse HEAD > /tmp/out/breachsafe-pdf.revision \
+	&& go build -trimpath -ldflags="-s -w" -o /tmp/out/breachsafe-pdf ./cmd/breachsafe-pdf \
+	&& sha256sum /tmp/out/breachsafe-pdf > /tmp/out/breachsafe-pdf.sha256 \
+	&& cp LICENSE /tmp/out/breachsafe-pdf.LICENSE \
+	&& cp NOTICE /tmp/out/breachsafe-pdf.NOTICE
+
 FROM scratch
 
 LABEL org.opencontainers.image.title="BreachSAFE Evidence composer" \
 	org.opencontainers.image.vendor="BreachSAFE" \
 	org.opencontainers.image.source="https://github.com/paul007ex/breachsafe-evidence-go" \
-	org.opencontainers.image.description="Thin CLI boundary over the pinned official ePack core" \
+	org.opencontainers.image.description="Thin CLI boundary over the latest official ePack and BreachSAFE PDF tools" \
 	org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0" \
 	org.opencontainers.image.base.name="ghcr.io/paul007ex/breachsafe-golden-go:1.26.6"
 
@@ -43,9 +54,15 @@ COPY --from=build /tmp/out/breachsafe-evidence /usr/local/bin/breachsafe-evidenc
 COPY --from=build /tmp/out/epack /usr/local/bin/epack
 COPY --from=build /tmp/out/epack.revision /usr/share/breachsafe/epack.revision
 COPY --from=build /tmp/out/epack.sha256 /usr/share/breachsafe/epack.sha256
+COPY --from=build /tmp/out/breachsafe-pdf /usr/local/bin/breachsafe-pdf
+COPY --from=build /tmp/out/breachsafe-pdf.revision /usr/share/breachsafe/breachsafe-pdf.revision
+COPY --from=build /tmp/out/breachsafe-pdf.sha256 /usr/share/breachsafe/breachsafe-pdf.sha256
 COPY --from=build /tmp/out/LICENSE /usr/share/licenses/epack/LICENSE
 COPY --from=build /tmp/out/NOTICE /usr/share/licenses/epack/NOTICE
+COPY --from=build /tmp/out/breachsafe-pdf.LICENSE /usr/share/licenses/breachsafe-pdf/LICENSE
+COPY --from=build /tmp/out/breachsafe-pdf.NOTICE /usr/share/licenses/breachsafe-pdf/NOTICE
 
 ENV BREACHSAFE_EPACK_BIN=/usr/local/bin/epack
+ENV BREACHSAFE_PDF_BIN=/usr/local/bin/breachsafe-pdf
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/breachsafe-evidence"]

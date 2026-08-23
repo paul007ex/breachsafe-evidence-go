@@ -31,7 +31,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: breachsafe-evidence <pack|inspect|verify|extract|unpack|diff|version>")
+		return errors.New("usage: breachsafe-evidence <pack|report|inspect|verify|extract|unpack|diff|version>")
 	}
 	path := os.Getenv("BREACHSAFE_EPACK_BIN")
 	if path == "" {
@@ -66,9 +66,59 @@ func run(ctx context.Context, args []string) error {
 		return err
 	case "pack":
 		return pack(ctx, runner, args[1:])
+	case "report":
+		return report(ctx, runner, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func report(ctx context.Context, epackRunner epackcli.CommandRunner, args []string) error {
+	pdfPath := os.Getenv("BREACHSAFE_PDF_BIN")
+	if pdfPath == "" {
+		return errors.New("BREACHSAFE_PDF_BIN must name the approved breachsafe-pdf executable")
+	}
+	if !filepath.IsAbs(pdfPath) {
+		return errors.New("BREACHSAFE_PDF_BIN must be an absolute path")
+	}
+	info, err := os.Stat(pdfPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("BREACHSAFE_PDF_BIN is not an executable regular file: %s", pdfPath)
+	}
+	if err := verifyExecutableDigestAt(pdfPath, "BREACHSAFE_PDF_SHA256", "/usr/share/breachsafe/breachsafe-pdf.sha256", "breachsafe-pdf"); err != nil {
+		return err
+	}
+	return reportWithRunners(ctx, epackRunner, epackcli.Runner{Path: pdfPath}, args)
+}
+
+func reportWithRunners(ctx context.Context, epackRunner, pdfRunner epackcli.CommandRunner, args []string) error {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var profile, request, scan, cbom, pdf, result, stream, output string
+	fs.StringVar(&profile, "profile", "", "breachsafe-pdf report profile")
+	fs.StringVar(&request, "request", "", "render request JSON")
+	fs.StringVar(&scan, "scan-json", "", "QuReddy scan JSON")
+	fs.StringVar(&cbom, "cbom", "", "CycloneDX CBOM JSON")
+	fs.StringVar(&pdf, "pdf", "", "generated PDF output")
+	fs.StringVar(&result, "result", "", "PDF RenderResult output")
+	fs.StringVar(&stream, "stream", "", "ePack stream")
+	fs.StringVar(&output, "output", "", "output ePack")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if profile == "" || request == "" || scan == "" || cbom == "" || pdf == "" || result == "" || stream == "" || output == "" {
+		return errors.New("report requires --profile, --request, --scan-json, --cbom, --pdf, --result, --stream, and --output")
+	}
+	pdfReceipt, err := pdfRunner.Run(ctx, "render", "--profile", profile, "--request", request, "--cbom", cbom, "--scan-json", scan, "--pdf", pdf, "--result", result)
+	if err != nil {
+		return fmt.Errorf("breachsafe-pdf render: %w", err)
+	}
+	if len(pdfReceipt) > 0 {
+		if _, err := os.Stderr.Write(pdfReceipt); err != nil {
+			return err
+		}
+	}
+	return pack(ctx, epackRunner, []string{"--stream", stream, "--request", request, "--scan", scan, "--cbom", cbom, "--pdf", pdf, "--result", result, "--output", output})
 }
 
 func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) error {
@@ -189,9 +239,13 @@ func sortedKeys(values map[string]bool) []string {
 }
 
 func verifyExecutableDigest(path string) error {
-	want := os.Getenv("BREACHSAFE_EPACK_SHA256")
+	return verifyExecutableDigestAt(path, "BREACHSAFE_EPACK_SHA256", "/usr/share/breachsafe/epack.sha256", "ePack")
+}
+
+func verifyExecutableDigestAt(path, envName, bundledPath, label string) error {
+	want := os.Getenv(envName)
 	if want == "" {
-		if data, err := os.ReadFile("/usr/share/breachsafe/epack.sha256"); err == nil {
+		if data, err := os.ReadFile(bundledPath); err == nil {
 			fields := strings.Fields(string(data))
 			if len(fields) > 0 {
 				want = fields[0]
@@ -199,19 +253,19 @@ func verifyExecutableDigest(path string) error {
 		}
 	}
 	if len(want) != 64 {
-		return errors.New("BREACHSAFE_EPACK_SHA256 (or bundled epack.sha256) is required")
+		return fmt.Errorf("%s (or bundled %s digest) is required", envName, label)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open ePack executable: %w", err)
+		return fmt.Errorf("open %s executable: %w", label, err)
 	}
 	defer f.Close()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("hash ePack executable: %w", err)
+		return fmt.Errorf("hash %s executable: %w", label, err)
 	}
 	if !strings.EqualFold(want, hex.EncodeToString(h.Sum(nil))) {
-		return errors.New("ePack executable digest does not match the approved SHA-256")
+		return fmt.Errorf("%s executable digest does not match the approved SHA-256", label)
 	}
 	return nil
 }
