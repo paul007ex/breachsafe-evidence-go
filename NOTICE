@@ -1,0 +1,21 @@
+SPDX-FileCopyrightText: 2026 BreachSAFE
+SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+BreachSAFE Evidence
+Copyright 2026 BreachSAFE
+
+BreachSAFE-owned evidence files are source-available under the PolyForm
+Noncommercial License 1.0.0. Commercial use requires a separate license from
+BreachSAFE.
+
+CODE_OF_CONDUCT.md is adapted from Contributor Covenant version 2.1,
+copyright Contributor Covenant contributors, and is licensed under Creative
+Commons Attribution 4.0. The upstream source is:
+https://github.com/EthicalSource/contributor_covenant/tree/2.1
+
+Repository history previously contained an Apache-2.0 license grant. That grant
+remains effective for copies received under those terms. This prospective
+license change does not revoke historical grants.
+
+Third-party dependencies and incorporated materials retain their original
+licenses, copyright, and notices.
