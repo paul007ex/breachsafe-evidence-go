@@ -4,17 +4,26 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/paul007ex/breachsafe-evidence-go/internal/epackcli"
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if err := run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -36,6 +45,9 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("BREACHSAFE_EPACK_BIN is not an executable regular file: %s", path)
 	}
 	runner := epackcli.Runner{Path: path}
+	if err := verifyExecutableDigest(path); err != nil {
+		return err
+	}
 	switch args[0] {
 	case "version", "inspect", "verify", "extract", "unpack", "diff":
 		for _, arg := range args[1:] {
@@ -59,7 +71,7 @@ func run(ctx context.Context, args []string) error {
 	}
 }
 
-func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
+func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) error {
 	fs := flag.NewFlagSet("pack", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var scan, cbom, pdf, oscal, log, request, result, stream, output string
@@ -82,10 +94,16 @@ func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
 	}
 	if _, err := os.Stat(output); err == nil {
 		return fmt.Errorf("output already exists: %s", output)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check output %s: %w", output, err)
 	}
-	for _, path := range []string{scan, cbom, pdf, oscal, log, request, result} {
-		if path != "" {
-			other = append(other, path)
+	inputs := []struct{ path, role string }{
+		{scan, "scan"}, {cbom, "cbom"}, {pdf, "pdf"}, {oscal, "oscal"},
+		{log, "log"}, {request, "request"}, {result, "result"},
+	}
+	for _, input := range inputs {
+		if input.path != "" {
+			other = append(other, input.path+"\x00"+input.role)
 		}
 	}
 	if len(other) == 0 {
@@ -98,7 +116,13 @@ func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
 	defer os.RemoveAll(tmp)
 	tmpPack := filepath.Join(tmp, filepath.Base(output))
 	argv := []string{"build", tmpPack, "--stream", stream}
-	for _, path := range other {
+	expected := make(map[string]bool)
+	for _, encoded := range other {
+		parts := strings.SplitN(encoded, "\x00", 2)
+		path, role := parts[0], "extra"
+		if len(parts) == 2 {
+			role = parts[1]
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			return fmt.Errorf("artifact %s: %w", path, err)
@@ -109,13 +133,32 @@ func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
 		if info.Size() == 0 {
 			return fmt.Errorf("artifact %s is empty", path)
 		}
-		argv = append(argv, "--file", path+":artifacts/"+filepath.Base(path))
+		destination := "artifacts/" + role + "/" + filepath.Base(path)
+		if expected[destination] {
+			return fmt.Errorf("duplicate artifact destination: %s", destination)
+		}
+		expected[destination] = true
+		argv = append(argv, "--file", path+":"+destination)
 	}
 	if _, err := runner.Run(ctx, argv...); err != nil {
 		return err
 	}
-	if _, err := runner.Run(ctx, "inspect", "--json", tmpPack); err != nil {
+	inspect, err := runner.Run(ctx, "inspect", "--json", tmpPack)
+	if err != nil {
 		return err
+	}
+	var receipt inspectReceipt
+	if err := json.Unmarshal(inspect, &receipt); err != nil {
+		return fmt.Errorf("parse ePack inspect receipt: %w", err)
+	}
+	if receipt.ArtifactCount != len(expected) {
+		return fmt.Errorf("ePack artifact count %d does not match requested %d", receipt.ArtifactCount, len(expected))
+	}
+	for _, artifact := range receipt.Artifacts {
+		delete(expected, artifact.Path)
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("ePack receipt omitted requested artifacts: %s", strings.Join(sortedKeys(expected), ", "))
 	}
 	if _, err := runner.Run(ctx, "verify", "--integrity-only", tmpPack); err != nil {
 		return err
@@ -123,5 +166,52 @@ func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
 	if err := os.Link(tmpPack, output); err != nil {
 		return fmt.Errorf("publish ePack without overwriting output: %w", err)
 	}
+	if _, err := io.WriteString(os.Stdout, string(inspect)); err != nil {
+		return err
+	}
 	return os.Remove(tmpPack)
+}
+
+type inspectReceipt struct {
+	ArtifactCount int `json:"artifact_count"`
+	Artifacts     []struct {
+		Path string `json:"path"`
+	} `json:"artifacts"`
+}
+
+func sortedKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func verifyExecutableDigest(path string) error {
+	want := os.Getenv("BREACHSAFE_EPACK_SHA256")
+	if want == "" {
+		if data, err := os.ReadFile("/usr/share/breachsafe/epack.sha256"); err == nil {
+			fields := strings.Fields(string(data))
+			if len(fields) > 0 {
+				want = fields[0]
+			}
+		}
+	}
+	if len(want) != 64 {
+		return errors.New("BREACHSAFE_EPACK_SHA256 (or bundled epack.sha256) is required")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open ePack executable: %w", err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("hash ePack executable: %w", err)
+	}
+	if !strings.EqualFold(want, hex.EncodeToString(h.Sum(nil))) {
+		return errors.New("ePack executable digest does not match the approved SHA-256")
+	}
+	return nil
 }

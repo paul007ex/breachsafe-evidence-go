@@ -26,6 +26,7 @@ RUN git clone --depth 1 --branch "${EPACK_REF}" https://github.com/locktivity/ep
 	&& cd /tmp/epack \
 	&& git rev-parse HEAD > /tmp/out/epack.revision \
 	&& go build -trimpath -ldflags="-s -w" -o /tmp/out/epack ./cmd/epack \
+	&& sha256sum /tmp/out/epack > /tmp/out/epack.sha256 \
 	&& cp LICENSE NOTICE /tmp/out/
 
 FROM scratch
@@ -41,6 +42,7 @@ WORKDIR /work
 COPY --from=build /tmp/out/breachsafe-evidence /usr/local/bin/breachsafe-evidence
 COPY --from=build /tmp/out/epack /usr/local/bin/epack
 COPY --from=build /tmp/out/epack.revision /usr/share/breachsafe/epack.revision
+COPY --from=build /tmp/out/epack.sha256 /usr/share/breachsafe/epack.sha256
 COPY --from=build /tmp/out/LICENSE /usr/share/licenses/epack/LICENSE
 COPY --from=build /tmp/out/NOTICE /usr/share/licenses/epack/NOTICE
 

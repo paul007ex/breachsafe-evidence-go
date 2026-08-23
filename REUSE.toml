@@ -3,19 +3,8 @@ version = 1
 SPDX-PackageName = "breachsafe-evidence"
 SPDX-PackageSupplier = "BreachSAFE <security@breachsafe.io>"
 
-# The first table is the prospective license for BreachSAFE-owned evidence files.
-# The later, more specific table wins for the adapted Contributor Covenant.
 [[annotations]]
 path = "**"
 precedence = "override"
 SPDX-FileCopyrightText = "BreachSAFE"
 SPDX-License-Identifier = "PolyForm-Noncommercial-1.0.0"
-
-[[annotations]]
-path = "CODE_OF_CONDUCT.md"
-precedence = "override"
-SPDX-FileCopyrightText = [
-    "Contributor Covenant contributors",
-    "2026 BreachSAFE",
-]
-SPDX-License-Identifier = "CC-BY-4.0"

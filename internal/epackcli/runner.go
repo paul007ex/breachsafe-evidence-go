@@ -13,6 +13,13 @@ const maxOutputBytes = 1 << 20
 
 type Runner struct{ Path string }
 
+// CommandRunner is the narrow process boundary used by the composer. Keeping
+// this interface small makes the orchestration testable without replacing the
+// official ePack binary.
+type CommandRunner interface {
+	Run(context.Context, ...string) ([]byte, error)
+}
+
 type cappedBuffer struct {
 	bytes.Buffer
 	truncated bool

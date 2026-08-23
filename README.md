@@ -9,6 +9,14 @@ Those responsibilities belong to QuReddy, Mint-OSCAL, breachsafe-pdf, and ePack 
 
 The repository consumes the shared `breachsafe-golden-go` toolchain image for CI gates.
 
+The executable boundary is deliberately explicit: `BREACHSAFE_EPACK_BIN` must identify the
+ePack binary and `BREACHSAFE_EPACK_SHA256` must contain its approved SHA-256 digest. The
+published image supplies the digest at `/usr/share/breachsafe/epack.sha256`.
+
+`pack` validates the ePack inspection receipt before publication and writes that JSON receipt
+to stdout. Role inputs are placed under deterministic paths such as `artifacts/cbom/` and
+`artifacts/pdf/`; `--other` inputs use `artifacts/extra/`.
+
 ## Container boundary
 
 `Dockerfile` uses the published GitHub golden Go image for compilation and emits a
