@@ -22,5 +22,13 @@ tracks the current upstream tip on each image build. A scheduled rebuild keeps t
 The image runs as UID 65532. For bind-mounted output directories, grant that directory
 write permission or run with an explicit operator UID; do not make the image privileged.
 
+Example one-shot use:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD:/work" -w /work \
+  ghcr.io/paul007ex/breachsafe-evidence-go:latest version
+```
+
 The UX is not embedded in this image. `breachsafe-ux` may call this CLI in a later P2/P3
 gateway integration once the CLI contract is stable.
