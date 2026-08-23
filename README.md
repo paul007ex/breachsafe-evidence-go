@@ -30,7 +30,81 @@ tracks the current upstream tip on each image build. A scheduled rebuild keeps t
 The image runs as UID 65532. For bind-mounted output directories, grant that directory
 write permission or run with an explicit operator UID; do not make the image privileged.
 
-Example one-shot use:
+## Copy/paste commands
+
+The easiest workflow is: put your input files in one directory, mount that directory at
+`/work`, then use paths beginning with `/work/` inside the container.
+
+```bash
+# 1. Pull the published image.
+docker pull ghcr.io/paul007ex/breachsafe-evidence-go:latest
+
+# 2. Create a working directory and place your files there.
+mkdir -p evidence-input
+cp /path/to/scan.json evidence-input/scan.json
+cp /path/to/cbom.json evidence-input/cbom.json
+cp /path/to/report.pdf evidence-input/report.pdf
+
+# 3. Build an ePack. The JSON receipt is written to the terminal.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/evidence-input:/work" \
+  ghcr.io/paul007ex/breachsafe-evidence-go:latest pack \
+  --stream breachsafe/my-scan \
+  --scan /work/scan.json \
+  --cbom /work/cbom.json \
+  --pdf /work/report.pdf \
+  --output /work/evidence.epack
+
+# 4. Verify the pack.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/evidence-input:/work" \
+  ghcr.io/paul007ex/breachsafe-evidence-go:latest \
+  verify --integrity-only /work/evidence.epack
+
+# 5. Inspect its manifest and digests.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/evidence-input:/work" \
+  ghcr.io/paul007ex/breachsafe-evidence-go:latest \
+  inspect --json /work/evidence.epack
+
+# 6. Extract the artifacts into evidence-input/unpacked/.
+mkdir -p evidence-input/unpacked
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/evidence-input:/work" \
+  ghcr.io/paul007ex/breachsafe-evidence-go:latest \
+  unpack --all -o /work/unpacked /work/evidence.epack
+```
+
+The resulting files are:
+
+```text
+evidence-input/
+├── evidence.epack
+├── scan.json
+├── cbom.json
+├── report.pdf
+└── unpacked/
+    ├── artifacts/scan/scan.json
+    ├── artifacts/cbom/cbom.json
+    └── artifacts/pdf/report.pdf
+```
+
+For local development, build the image from this checkout first:
+
+```bash
+docker build --pull --no-cache -t breachsafe-evidence-go:local .
+```
+
+Then replace `ghcr.io/paul007ex/breachsafe-evidence-go:latest` in the commands above with
+`breachsafe-evidence-go:local`.
+
+`--pull --no-cache` is intentional: it refreshes the golden Go base image and rebuilds the
+official ePack binary from the current `EPACK_REF` instead of reusing an old Docker layer.
+
+The image must be able to pull `ghcr.io/paul007ex/breachsafe-golden-go:1.26.6` while building.
+If that package is private, authenticate Docker to GHCR first or use the published image.
+
+Minimal smoke test:
 
 ```bash
 docker run --rm --user "$(id -u):$(id -g)" \
