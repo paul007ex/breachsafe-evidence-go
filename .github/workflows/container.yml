@@ -52,6 +52,9 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          no-cache: true
+          build-args: |
+            EPACK_REF=main
           tags: |
             ${{ env.IMAGE }}:${{ env.VERSION }}
             ${{ env.IMAGE }}:v0.1

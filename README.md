@@ -12,9 +12,11 @@ The repository consumes the shared `breachsafe-golden-go` toolchain image for CI
 ## Container boundary
 
 `Dockerfile` uses the published GitHub golden Go image for compilation and emits a
-minimal runtime image containing only this CLI. The official ePack core remains an
-explicit runtime dependency: mount the approved ePack binary at
-`/usr/local/bin/epack` and keep its release/provenance with the deployment record.
+minimal runtime image containing this CLI and the components-disabled official ePack
+core built from the upstream `main` branch. The image records the resolved upstream
+commit at `/usr/share/breachsafe/epack.revision` and carries ePack's Apache license and
+NOTICE files. The publish workflow disables Docker build cache so `EPACK_REF=main`
+tracks the current upstream tip on each image build.
 
 The UX is not embedded in this image. `breachsafe-ux` may call this CLI in a later P2/P3
 gateway integration once the CLI contract is stable.
