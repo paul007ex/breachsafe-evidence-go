@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+.git
+.github
+testdata
+README.md
+LICENSE
+LICENSES
+NOTICE
+REUSE.toml
