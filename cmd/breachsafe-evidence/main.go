@@ -28,9 +28,21 @@ func run(ctx context.Context, args []string) error {
 	if path == "" {
 		return errors.New("BREACHSAFE_EPACK_BIN must name the pinned ePack executable")
 	}
+	if !filepath.IsAbs(path) {
+		return errors.New("BREACHSAFE_EPACK_BIN must be an absolute path")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("BREACHSAFE_EPACK_BIN is not an executable regular file: %s", path)
+	}
 	runner := epackcli.Runner{Path: path}
 	switch args[0] {
 	case "version", "inspect", "verify", "extract", "unpack", "diff":
+		for _, arg := range args[1:] {
+			if arg == "--force" {
+				return errors.New("--force is not permitted by the BreachSAFE facade")
+			}
+		}
 		command := args[0]
 		if command == "unpack" {
 			command = "extract"
@@ -108,5 +120,8 @@ func pack(ctx context.Context, runner epackcli.Runner, args []string) error {
 	if _, err := runner.Run(ctx, "verify", "--integrity-only", tmpPack); err != nil {
 		return err
 	}
-	return os.Rename(tmpPack, output)
+	if err := os.Link(tmpPack, output); err != nil {
+		return fmt.Errorf("publish ePack without overwriting output: %w", err)
+	}
+	return os.Remove(tmpPack)
 }
