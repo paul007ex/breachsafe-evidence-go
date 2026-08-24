@@ -105,7 +105,7 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 	fs.StringVar(&cbom, "cbom", "", "CycloneDX CBOM JSON")
 	fs.StringVar(&pdf, "pdf", "", "generated PDF output")
 	fs.StringVar(&result, "result", "", "PDF RenderResult output")
-	fs.StringVar(&log, "log", "", "optional raw log artifact")
+	fs.StringVar(&log, "log", "", "optional existing raw log artifact")
 	fs.StringVar(&archive, "zip", "", "ordinary OSS ZIP output")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -122,22 +122,65 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 			return fmt.Errorf("render input is not a regular file: %s", path)
 		}
 	}
-	if _, err := os.Stat(archive); err == nil {
-		return fmt.Errorf("output already exists: %s", archive)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("check output %s: %w", archive, err)
+	if log != "" {
+		info, err := os.Lstat(log)
+		if err != nil {
+			return fmt.Errorf("render log %s: %w", log, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("render log is not a regular file: %s", log)
+		}
 	}
+	for _, path := range []string{pdf, result, archive} {
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("output already exists: %s", path)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("check output %s: %w", path, err)
+		}
+	}
+	tempArchive, err := temporaryOutputPath(archive)
+	if err != nil {
+		return err
+	}
+	completed := false
+	defer func() {
+		_ = os.Remove(tempArchive)
+		if !completed {
+			_ = os.Remove(pdf)
+			_ = os.Remove(result)
+		}
+	}()
 	receipt, err := pdfRunner.Run(ctx, "render", "--profile", profile, "--request", request, "--cbom", cbom, "--scan-json", scan, "--pdf", pdf, "--result", result)
 	if err != nil {
 		return fmt.Errorf("breachsafe-pdf render: %w", err)
 	}
-	if err := writeOSSZip(archive, request, cbom, scan, pdf, result, log); err != nil {
+	if err := writeOSSZip(tempArchive, request, cbom, scan, pdf, result, log); err != nil {
 		return err
 	}
+	if err := os.Rename(tempArchive, archive); err != nil {
+		return fmt.Errorf("publish %s: %w", archive, err)
+	}
+	completed = true
 	if _, err := os.Stdout.Write(receipt); err != nil {
 		return err
 	}
 	return nil
+}
+
+func temporaryOutputPath(path string) (string, error) {
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary output for %s: %w", path, err)
+	}
+	temporary := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(temporary)
+		return "", fmt.Errorf("close temporary output for %s: %w", path, err)
+	}
+	if err := os.Remove(temporary); err != nil {
+		return "", fmt.Errorf("remove temporary output for %s: %w", path, err)
+	}
+	return temporary, nil
 }
 
 func writeOSSZip(output string, request, cbom, scan, pdf, result, log string) error {
