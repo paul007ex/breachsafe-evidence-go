@@ -28,7 +28,8 @@ RUN git clone --depth 1 --branch "${EPACK_REF}" https://github.com/locktivity/ep
 	&& git -C /tmp/epack rev-parse HEAD > /tmp/out/epack.revision \
 	&& go -C /tmp/epack build -trimpath -ldflags="-s -w" -o /tmp/out/epack ./cmd/epack \
 	&& sha256sum /tmp/out/epack > /tmp/out/epack.sha256 \
-	&& cp LICENSE NOTICE /tmp/out/
+	&& cp /tmp/epack/LICENSE /tmp/out/epack.LICENSE \
+	&& cp /tmp/epack/NOTICE /tmp/out/epack.NOTICE
 
 # Build the canonical profile-driven PDF compiler from the latest upstream main.
 RUN git clone --depth 1 --branch "${PDF_REF}" https://github.com/paul007ex/breachsafe-pdf.git /tmp/breachsafe-pdf \
@@ -55,8 +56,8 @@ COPY --from=build /tmp/out/epack.sha256 /usr/share/breachsafe/epack.sha256
 COPY --from=build /tmp/out/breachsafe-pdf /usr/local/bin/breachsafe-pdf
 COPY --from=build /tmp/out/breachsafe-pdf.revision /usr/share/breachsafe/breachsafe-pdf.revision
 COPY --from=build /tmp/out/breachsafe-pdf.sha256 /usr/share/breachsafe/breachsafe-pdf.sha256
-COPY --from=build /tmp/out/LICENSE /usr/share/licenses/epack/LICENSE
-COPY --from=build /tmp/out/NOTICE /usr/share/licenses/epack/NOTICE
+COPY --from=build /tmp/out/epack.LICENSE /usr/share/licenses/epack/LICENSE
+COPY --from=build /tmp/out/epack.NOTICE /usr/share/licenses/epack/NOTICE
 COPY --from=build /tmp/out/breachsafe-pdf.LICENSE /usr/share/licenses/breachsafe-pdf/LICENSE
 COPY --from=build /tmp/out/breachsafe-pdf.NOTICE /usr/share/licenses/breachsafe-pdf/NOTICE
 
