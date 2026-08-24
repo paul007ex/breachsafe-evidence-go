@@ -36,8 +36,8 @@ RUN git clone --depth 1 --branch "${PDF_REF}" https://github.com/paul007ex/breac
 	&& git -C /tmp/breachsafe-pdf rev-parse HEAD > /tmp/out/breachsafe-pdf.revision \
 	&& go -C /tmp/breachsafe-pdf build -trimpath -ldflags="-s -w" -o /tmp/out/breachsafe-pdf ./cmd/breachsafe-pdf \
 	&& sha256sum /tmp/out/breachsafe-pdf > /tmp/out/breachsafe-pdf.sha256 \
-	&& cp LICENSE /tmp/out/breachsafe-pdf.LICENSE \
-	&& cp NOTICE /tmp/out/breachsafe-pdf.NOTICE
+	&& cp /tmp/breachsafe-pdf/LICENSE /tmp/out/breachsafe-pdf.LICENSE \
+	&& cp /tmp/breachsafe-pdf/NOTICE /tmp/out/breachsafe-pdf.NOTICE
 
 FROM scratch
 
