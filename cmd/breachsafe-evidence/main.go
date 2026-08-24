@@ -105,7 +105,7 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 	fs.StringVar(&cbom, "cbom", "", "CycloneDX CBOM JSON")
 	fs.StringVar(&pdf, "pdf", "", "generated PDF output")
 	fs.StringVar(&result, "result", "", "PDF RenderResult output")
-	fs.StringVar(&log, "log", "", "optional existing raw log artifact")
+	fs.StringVar(&log, "log", "", "optional raw renderer log output")
 	fs.StringVar(&archive, "zip", "", "ordinary OSS ZIP output")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -122,16 +122,11 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 			return fmt.Errorf("render input is not a regular file: %s", path)
 		}
 	}
+	outputs := []string{pdf, result, archive}
 	if log != "" {
-		info, err := os.Lstat(log)
-		if err != nil {
-			return fmt.Errorf("render log %s: %w", log, err)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("render log is not a regular file: %s", log)
-		}
+		outputs = append(outputs, log)
 	}
-	for _, path := range []string{pdf, result, archive} {
+	for _, path := range outputs {
 		if _, err := os.Stat(path); err == nil {
 			return fmt.Errorf("output already exists: %s", path)
 		} else if !os.IsNotExist(err) {
@@ -148,11 +143,19 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 		if !completed {
 			_ = os.Remove(pdf)
 			_ = os.Remove(result)
+			if log != "" {
+				_ = os.Remove(log)
+			}
 		}
 	}()
 	receipt, err := pdfRunner.Run(ctx, "render", "--profile", profile, "--request", request, "--cbom", cbom, "--scan-json", scan, "--pdf", pdf, "--result", result)
 	if err != nil {
 		return fmt.Errorf("breachsafe-pdf render: %w", err)
+	}
+	if log != "" {
+		if err := writeRenderLog(log, receipt); err != nil {
+			return err
+		}
 	}
 	if err := writeOSSZip(tempArchive, request, cbom, scan, pdf, result, log); err != nil {
 		return err
@@ -163,6 +166,23 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 	completed = true
 	if _, err := os.Stdout.Write(receipt); err != nil {
 		return err
+	}
+	return nil
+}
+
+func writeRenderLog(path string, receipt []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create render log: %w", err)
+	}
+	if _, err := file.Write(receipt); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("write render log: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return fmt.Errorf("close render log: %w", err)
 	}
 	return nil
 }
