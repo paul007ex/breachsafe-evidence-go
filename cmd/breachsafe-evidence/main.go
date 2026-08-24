@@ -372,7 +372,7 @@ func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) err
 	if err := os.Link(tmpPack, output); err != nil {
 		return fmt.Errorf("publish ePack without overwriting output: %w", err)
 	}
-	if _, err := io.WriteString(os.Stdout, string(inspect)); err != nil {
+	if _, err := os.Stdout.Write(inspect); err != nil {
 		return err
 	}
 	return os.Remove(tmpPack)
