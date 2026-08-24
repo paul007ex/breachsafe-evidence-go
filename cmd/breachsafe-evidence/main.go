@@ -3,6 +3,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -31,7 +32,10 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: breachsafe-evidence <pack|report|inspect|verify|extract|unpack|diff|version>")
+		return errors.New("usage: breachsafe-evidence <render|pack|report|inspect|verify|extract|unpack|diff|version>")
+	}
+	if args[0] == "render" {
+		return render(ctx, args[1:])
 	}
 	path := os.Getenv("BREACHSAFE_EPACK_BIN")
 	if path == "" {
@@ -71,6 +75,121 @@ func run(ctx context.Context, args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func render(ctx context.Context, args []string) error {
+	pdfPath := os.Getenv("BREACHSAFE_PDF_BIN")
+	if pdfPath == "" {
+		return errors.New("BREACHSAFE_PDF_BIN must name the approved breachsafe-pdf executable")
+	}
+	if !filepath.IsAbs(pdfPath) {
+		return errors.New("BREACHSAFE_PDF_BIN must be an absolute path")
+	}
+	info, err := os.Stat(pdfPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("BREACHSAFE_PDF_BIN is not an executable regular file: %s", pdfPath)
+	}
+	if err := verifyExecutableDigestAt(pdfPath, "BREACHSAFE_PDF_SHA256", "/usr/share/breachsafe/breachsafe-pdf.sha256", "breachsafe-pdf"); err != nil {
+		return err
+	}
+	return renderWithRunner(ctx, epackcli.Runner{Path: pdfPath}, args)
+}
+
+func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, args []string) error {
+	fs := flag.NewFlagSet("render", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var profile, request, scan, cbom, pdf, result, log, archive string
+	fs.StringVar(&profile, "profile", "", "breachsafe-pdf report profile")
+	fs.StringVar(&request, "request", "", "render request JSON")
+	fs.StringVar(&scan, "scan-json", "", "QuReddy scan JSON")
+	fs.StringVar(&cbom, "cbom", "", "CycloneDX CBOM JSON")
+	fs.StringVar(&pdf, "pdf", "", "generated PDF output")
+	fs.StringVar(&result, "result", "", "PDF RenderResult output")
+	fs.StringVar(&log, "log", "", "optional raw log artifact")
+	fs.StringVar(&archive, "zip", "", "ordinary OSS ZIP output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if profile == "" || request == "" || scan == "" || cbom == "" || pdf == "" || result == "" || archive == "" {
+		return errors.New("render requires --profile, --request, --scan-json, --cbom, --pdf, --result, and --zip")
+	}
+	for _, path := range []string{request, scan, cbom} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("render input %s: %w", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("render input is not a regular file: %s", path)
+		}
+	}
+	if _, err := os.Stat(archive); err == nil {
+		return fmt.Errorf("output already exists: %s", archive)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check output %s: %w", archive, err)
+	}
+	receipt, err := pdfRunner.Run(ctx, "render", "--profile", profile, "--request", request, "--cbom", cbom, "--scan-json", scan, "--pdf", pdf, "--result", result)
+	if err != nil {
+		return fmt.Errorf("breachsafe-pdf render: %w", err)
+	}
+	if err := writeOSSZip(archive, request, cbom, scan, pdf, result, log); err != nil {
+		return err
+	}
+	if _, err := os.Stdout.Write(receipt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeOSSZip(output string, request, cbom, scan, pdf, result, log string) error {
+	file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create OSS ZIP: %w", err)
+	}
+	defer file.Close()
+	archive := zip.NewWriter(file)
+	inputs := []struct{ path, name string }{
+		{request, "request.json"}, {cbom, "scan.cdx.json"}, {scan, "scan.json"},
+		{pdf, "report.pdf"}, {result, "report.result.json"},
+	}
+	if log != "" {
+		inputs = append(inputs, struct{ path, name string }{log, "raw.log"})
+	}
+	for _, input := range inputs {
+		if err := addZipFile(archive, input.path, input.name); err != nil {
+			return errors.Join(err, archive.Close(), file.Close())
+		}
+	}
+	if err := archive.Close(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("close OSS ZIP: %w", err)
+	}
+	return file.Close()
+}
+
+func addZipFile(archive *zip.Writer, source, name string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("read ZIP artifact %s: %w", source, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("ZIP artifact is not a regular file: %s", source)
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("open ZIP artifact %s: %w", source, err)
+	}
+	dest, err := archive.Create(name)
+	if err != nil {
+		return fmt.Errorf("create ZIP entry %s: %w", name, err)
+	}
+	if _, err := io.Copy(dest, input); err != nil {
+		_ = input.Close()
+		return fmt.Errorf("write ZIP entry %s: %w", name, err)
+	}
+	if err := input.Close(); err != nil {
+		return fmt.Errorf("close ZIP artifact %s: %w", source, err)
+	}
+	return nil
 }
 
 func report(ctx context.Context, epackRunner epackcli.CommandRunner, args []string) error {

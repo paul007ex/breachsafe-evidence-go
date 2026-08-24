@@ -3,6 +3,7 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -155,5 +156,40 @@ func TestReportRendersThenPacks(t *testing.T) {
 	}
 	if _, err := os.Stat(out); err != nil {
 		t.Fatalf("ePack output missing: %v", err)
+	}
+}
+
+func TestRenderCreatesOrdinaryZipWithoutEpack(t *testing.T) {
+	dir := t.TempDir()
+	paths := map[string]string{
+		"request": filepath.Join(dir, "request.json"), "scan": filepath.Join(dir, "scan.json"),
+		"cbom": filepath.Join(dir, "cbom.json"), "pdf": filepath.Join(dir, "report.pdf"),
+		"result": filepath.Join(dir, "report.result.json"), "log": filepath.Join(dir, "raw.log"),
+	}
+	for name, path := range paths {
+		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(dir, "report.zip")
+	runner := &fakeRunner{}
+	args := []string{"--profile", "breachsafe/community", "--request", paths["request"], "--scan-json", paths["scan"], "--cbom", paths["cbom"], "--pdf", paths["pdf"], "--result", paths["result"], "--log", paths["log"], "--zip", out}
+	if err := renderWithRunner(context.Background(), runner, args); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0][0] != "render" {
+		t.Fatalf("expected one PDF render call, got %#v", runner.calls)
+	}
+	archive, err := zip.OpenReader(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	want := map[string]bool{"request.json": true, "scan.cdx.json": true, "scan.json": true, "report.pdf": true, "report.result.json": true, "raw.log": true}
+	for _, entry := range archive.File {
+		delete(want, entry.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("ZIP missing entries: %v", want)
 	}
 }
