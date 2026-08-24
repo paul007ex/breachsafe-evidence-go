@@ -175,7 +175,7 @@ func TestRenderCreatesOrdinaryZipWithoutEpack(t *testing.T) {
 		"cbom": filepath.Join(dir, "cbom.json"), "pdf": filepath.Join(dir, "report.pdf"),
 		"result": filepath.Join(dir, "report.result.json"), "log": filepath.Join(dir, "raw.log"),
 	}
-	for _, name := range []string{"request", "scan", "cbom", "log"} {
+	for _, name := range []string{"request", "scan", "cbom"} {
 		path := paths[name]
 		if err := os.WriteFile(path, []byte(name), 0o600); err != nil {
 			t.Fatal(err)
@@ -204,7 +204,7 @@ func TestRenderCreatesOrdinaryZipWithoutEpack(t *testing.T) {
 	}
 }
 
-func TestRenderRejectsMissingLogWithoutCreatingOutputs(t *testing.T) {
+func TestRenderWritesLogOutput(t *testing.T) {
 	dir := t.TempDir()
 	paths := map[string]string{
 		"request": filepath.Join(dir, "request.json"), "scan": filepath.Join(dir, "scan.json"),
@@ -217,17 +217,23 @@ func TestRenderRejectsMissingLogWithoutCreatingOutputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err := renderWithRunner(context.Background(), &fakeRunner{}, []string{
+	runner := &fakeRunner{}
+	err := renderWithRunner(context.Background(), runner, []string{
 		"--profile", "breachsafe/community", "--request", paths["request"],
 		"--scan-json", paths["scan"], "--cbom", paths["cbom"], "--pdf", paths["pdf"],
-		"--result", paths["result"], "--log", filepath.Join(dir, "missing.log"), "--zip", paths["zip"],
+		"--result", paths["result"], "--log", filepath.Join(dir, "raw.log"), "--zip", paths["zip"],
 	})
-	if err == nil || !strings.Contains(err.Error(), "render log") {
-		t.Fatalf("expected missing log error, got %v", err)
+	if err != nil {
+		t.Fatalf("expected log output success, got %v", err)
 	}
-	for _, path := range []string{paths["pdf"], paths["result"], paths["zip"]} {
-		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
-			t.Fatalf("failed render left output %s: %v", path, statErr)
-		}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one PDF render call, got %#v", runner.calls)
+	}
+	log, err := os.ReadFile(filepath.Join(dir, "raw.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(log) != "ok\n" {
+		t.Fatalf("unexpected render log: %q", log)
 	}
 }
