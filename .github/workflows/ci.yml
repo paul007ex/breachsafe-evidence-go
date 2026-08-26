@@ -19,7 +19,16 @@ jobs:
   go:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/paul007ex/breachsafe-golden-go:1.26.6
+      # Series tag, not the patch. A 1.26.6 -> 1.26.7 bump then needs no edit here,
+      # matching how breachsafe-container consumers pin 3.14-openssl3.5.
+      image: ghcr.io/paul007ex/breachsafe-golden-go:1.26
+      # breachsafe-golden-go ships USER 65532:65532 for defence in depth. The Actions
+      # runner owns /__w and /__w/_temp as uid 1001, so a uid-65532 container cannot
+      # write the runner file commands and every step dies with EACCES on
+      # _runner_file_commands/save_state_*. Run the ephemeral CI container as root;
+      # the non-root default still applies to the published image and the devcontainer.
+      # Same fix breachsafe-golden-python already carries in quality-gates-python.yml.
+      options: --user root
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
