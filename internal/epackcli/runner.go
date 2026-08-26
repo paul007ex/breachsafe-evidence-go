@@ -46,6 +46,8 @@ func (r Runner) Run(ctx context.Context, args ...string) ([]byte, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("epack command is required")
 	}
+	// #nosec G204 -- r.Path is the epack executable this Runner was constructed with, not user
+	// input, and its digest is verified before use. args are this program's own subcommands.
 	cmd := exec.CommandContext(ctx, r.Path, args...)
 	var stdout, stderr cappedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

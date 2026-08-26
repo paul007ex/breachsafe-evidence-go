@@ -171,7 +171,7 @@ func renderWithRunner(ctx context.Context, pdfRunner epackcli.CommandRunner, arg
 }
 
 func writeRenderLog(path string, receipt []byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- path is the operator-supplied --log destination; O_EXCL refuses to follow or clobber an existing file
 	if err != nil {
 		return fmt.Errorf("create render log: %w", err)
 	}
@@ -204,11 +204,11 @@ func temporaryOutputPath(path string) (string, error) {
 }
 
 func writeOSSZip(output string, request, cbom, scan, pdf, result, log string) error {
-	file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- output is the operator-supplied bundle destination; O_EXCL refuses to follow or clobber an existing file
 	if err != nil {
 		return fmt.Errorf("create OSS ZIP: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	archive := zip.NewWriter(file)
 	inputs := []struct{ path, name string }{
 		{request, "request.json"}, {cbom, "scan.cdx.json"}, {scan, "scan.json"},
@@ -237,7 +237,7 @@ func addZipFile(archive *zip.Writer, source, name string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("ZIP artifact is not a regular file: %s", source)
 	}
-	input, err := os.Open(source)
+	input, err := os.Open(source) // #nosec G304 -- source is an operator-supplied artifact path, already stat'd and rejected above unless a regular file
 	if err != nil {
 		return fmt.Errorf("open ZIP artifact %s: %w", source, err)
 	}
@@ -345,7 +345,7 @@ func pack(ctx context.Context, runner epackcli.CommandRunner, args []string) err
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	tmpPack := filepath.Join(tmp, filepath.Base(output))
 	argv := []string{"build", tmpPack, "--stream", stream}
 	expected := make(map[string]bool)
@@ -412,11 +412,11 @@ func stageArtifact(tmp string, index int, path string) (string, error) {
 	if before.Size() == 0 {
 		return "", fmt.Errorf("artifact %s is empty", path)
 	}
-	source, err := os.Open(path)
+	source, err := os.Open(path) // #nosec G304 -- path is an operator-supplied artifact path, already stat'd and rejected above if empty
 	if err != nil {
 		return "", fmt.Errorf("open artifact %s: %w", path, err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	opened, err := source.Stat()
 	if err != nil {
 		return "", fmt.Errorf("stat opened artifact %s: %w", path, err)
@@ -436,12 +436,13 @@ func stageArtifact(tmp string, index int, path string) (string, error) {
 		return "", fmt.Errorf("create artifact staging directory: %w", err)
 	}
 	staged := filepath.Join(sources, fmt.Sprintf("%06d-%s", index, filepath.Base(path)))
-	destination, err := os.OpenFile(staged, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	destination, err := os.OpenFile(staged, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- staged is built by this function under a directory it created; O_EXCL refuses to clobber
 	if err != nil {
 		return "", fmt.Errorf("create staged artifact: %w", err)
 	}
 	if _, err := io.Copy(destination, source); err != nil {
-		destination.Close()
+		// Best-effort cleanup on the error path. The real close is checked below.
+		_ = destination.Close()
 		return "", fmt.Errorf("stage artifact %s: %w", path, err)
 	}
 	if err := destination.Close(); err != nil {
@@ -473,7 +474,11 @@ func verifyExecutableDigest(path string) error {
 func verifyExecutableDigestAt(path, envName, bundledPath, label string) error {
 	want := os.Getenv(envName)
 	if want == "" {
-		if data, err := os.ReadFile(bundledPath); err == nil {
+		// #nosec G304 -- bundledPath is a compile-time constant naming a digest shipped beside the binary.
+		// The annotation is on its own line: gosec does not carry a trailing comment on an `if` with an
+		// init clause down to the call inside it.
+		data, err := os.ReadFile(bundledPath)
+		if err == nil {
 			fields := strings.Fields(string(data))
 			if len(fields) > 0 {
 				want = fields[0]
@@ -483,11 +488,11 @@ func verifyExecutableDigestAt(path, envName, bundledPath, label string) error {
 	if len(want) != 64 {
 		return fmt.Errorf("%s (or bundled %s digest) is required", envName, label)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is the executable being digest-verified, named by this program's own caller
 	if err != nil {
 		return fmt.Errorf("open %s executable: %w", label, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return fmt.Errorf("hash %s executable: %w", label, err)

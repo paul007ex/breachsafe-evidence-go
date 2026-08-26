@@ -19,14 +19,36 @@ jobs:
   go:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/paul007ex/breachsafe-golden-go:1.26.6
+      # Series tag, not the patch. A 1.26.6 -> 1.26.7 bump then needs no edit here,
+      # matching how breachsafe-container consumers pin 3.14-openssl3.5.
+      image: ghcr.io/paul007ex/breachsafe-golden-go:1.26
+      # breachsafe-golden-go ships USER 65532:65532 for defence in depth. The Actions
+      # runner owns /__w and /__w/_temp as uid 1001, so a uid-65532 container cannot
+      # write the runner file commands and every step dies with EACCES on
+      # _runner_file_commands/save_state_*. Run the ephemeral CI container as root;
+      # the non-root default still applies to the published image and the devcontainer.
+      # Same fix breachsafe-golden-python already carries in quality-gates-python.yml.
+      options: --user root
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      # actions/checkout adds safe.directory under a TEMPORARY HOME and then reverts it,
+      # so nothing persists for later steps. The container's HOME is /tmp, git then
+      # reports dubious ownership on the workspace and exits 128, and `go build` refuses
+      # to stamp VCS: "error obtaining VCS status: exit status 128". Confirmed in
+      # breachsafe-pdf, which has the identical container + checkout shape.
+      - name: Mark the workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Toolchain doctor
-        run: ./doctor.sh
+        # The image's own golden-go-doctor, not a local copy. The local doctor.sh
+        # asserted `id -u` == 65532 unconditionally, which is false under the
+        # `--user root` override the runner requires, so it exited 1 in 48ms with no
+        # output. golden-go-doctor already handles that case explicitly
+        # (breachsafe-golden-go#9) and is maintained alongside the image.
+        run: golden-go-doctor
       - name: Format check
         run: test -z "$(gofmt -l .)"
       - name: Vet

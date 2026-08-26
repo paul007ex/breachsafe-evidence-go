@@ -194,7 +194,7 @@ func TestRenderCreatesOrdinaryZipWithoutEpack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	want := map[string]bool{"request.json": true, "scan.cdx.json": true, "scan.json": true, "report.pdf": true, "report.result.json": true, "raw.log": true}
 	for _, entry := range archive.File {
 		delete(want, entry.Name)
