@@ -56,9 +56,9 @@ enforced in `cmd/breachsafe-evidence/main.go`.
 | Var | Meaning | Digest checked against |
 |---|---|---|
 | `BREACHSAFE_EPACK_BIN` | absolute path to the ePack executable | `BREACHSAFE_EPACK_SHA256`, else `/usr/share/breachsafe/epack.sha256` |
-| `BREACHSAFE_EPACK_SHA256` | approved ePack digest | — |
+| `BREACHSAFE_EPACK_SHA256` | approved ePack digest | n/a (this is the digest) |
 | `BREACHSAFE_PDF_BIN` | absolute path to `breachsafe-pdf` | `BREACHSAFE_PDF_SHA256`, else `/usr/share/breachsafe/breachsafe-pdf.sha256` |
-| `BREACHSAFE_PDF_SHA256` | approved `breachsafe-pdf` digest | — |
+| `BREACHSAFE_PDF_SHA256` | approved `breachsafe-pdf` digest | n/a (this is the digest) |
 
 `*_BIN` must be an absolute path to an executable regular file, or the command errors before
 doing any work. The published image supplies the reference digests under
@@ -108,7 +108,7 @@ Versioned image tags are the audit references; `:latest` is the moving nightly. 
 with `docker build --pull --no-cache -t breachsafe-evidence-go:local .`; `--pull --no-cache`
 is intentional, it refreshes the golden-go base and rebuilds the pinned upstream binaries
 instead of reusing a stale layer. The runtime image runs as UID 65532: grant bind-mounted
-output directories write permission rather than making the container privileged.
+output directories write permission. Do not make the container privileged.
 
 ## 8. Licence
 
